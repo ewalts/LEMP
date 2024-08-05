@@ -1,0 +1,12 @@
+- name: Run deployment checks
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/deployment_vars.yml
+    - vars/compose_vars.yml
+    - vars/mysql_vars.yml
+    - "{{ deployment_log }}"
+  tasks:
+    - name: Run checks
+      import_tasks: 
+        file: tasks/check_route53.yml

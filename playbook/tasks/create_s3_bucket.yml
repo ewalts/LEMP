@@ -1,0 +1,7 @@
+    - name: Creat s3 bucket
+      amazon.aws.s3_bucket:
+        name: "{{ s3_bucket }}"
+        state: present
+      register: s3
+    - debug:
+        msg: "{{ s3 }}"

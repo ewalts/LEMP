@@ -1,0 +1,24 @@
+---
+home:
+  hosts:
+    localhost:
+      ansible_host: localhost
+  vars:
+    ansible_user: eric
+ec2hosts:
+  hosts:
+  vars:
+    ansible_ssh_private_key_file: ~/wrk/cloud/.secure/rwi-ngx/011-rwi-ngx.pem
+mysql:
+  hosts:
+  vars:
+    ansible_ssh_private_key_file: ~/wrk/cloud/.secure/rwi-ngx/011-rwi-ngx.pem
+apache:
+  hosts:
+  vars:
+    ansible_ssh_private_key_file: ~/wrk/cloud/.secure/rwi-ngx/011-rwi-ngx.pem
+all:
+  hosts:
+    localhost:
+      ansible_host: localhost
+...

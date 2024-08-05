@@ -1,0 +1,124 @@
+---
+- name: Docker Compose - nginx/php-fpm
+  hosts: nginx
+  vars_files:
+    - vars/compose_vars.yml
+    - vars/deployment_vars.yml
+    - "{{ deployment_log }}"
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Wait for ssh
+      ansible.builtin.wait_for:
+        port: 22
+        host: '{{ (ansible_ssh_host|default(ansible_host))|default(inventory_hostname) }}'
+        search_regex: OpenSSH
+        delay: 10
+      connection: local
+
+    - name: create web directory
+      file:
+        path: "{{ www_dir }}"
+        owner: www-data
+        state: directory
+        mode: 0775
+
+    - name: Create nginx directory
+      file:
+        path: "{{ nginx_dir }}"
+        state: directory
+        mode: 0775
+
+    - name: Create php directory
+      file: 
+        path: "{{ php_dir }}"
+        state: directory
+        mode: 0775
+
+    - name: Copy initial nginx compose
+      ansible.builtin.copy:
+        src: "{{ src_dir }}/create-docker-compose.yml"
+        dest: "{{ nginx_dir }}/docker-compose.yml"
+
+#    - name: Copy initial php compose
+#      ansible.builtin.copy:
+#        src: "{{ src_dir }}/php/create-docker-compose.yml"
+#        dest: "{{ php_dir }}/docker-compose.yml"
+#
+#    - name: Copy php Dockerfile
+#      ansible.builtin.copy:
+#        src: "{{ src_dir }}/php/Dockerfile"
+#        dest: "{{ php_dir }}/Dockerfile"
+
+    - name: Run nginx docker compose
+      community.docker.docker_compose:
+        project_src: "{{ nginx_dir }}"
+        files:
+          - docker-compose.yml
+      register: output
+
+    - name: Show initial create results
+      ansible.builtin.debug:
+        var: output
+
+#    - name: Run php docker compose
+#      community.docker.docker_compose:
+#        project_src: "{{ php_dir }}"
+#        files:
+#          - docker-compose.yml
+#      register: output
+
+#    - name: Show initial create results
+#      ansible.builtin.debug:
+#        var: output
+
+    - name: Copy Nginx config
+      ansible.builtin.copy:
+        src: "{{ src_dir }}/default.conf"
+        dest: "{{ nginx_dir }}/default.conf"
+
+    - name: Copy nginx update compose
+      ansible.builtin.copy:
+        src: "{{ src_dir }}/update-docker-compose.yml"
+        dest: "{{ nginx_dir }}/docker-compose.yml"
+
+    - name: Copy nginx Dockerfile
+      ansible.builtin.copy:
+        src: "{{ src_dir }}/Dockerfile"
+        dest: "{{ nginx_dir }}/Dockerfile"
+
+    - name: Copy index.php
+      ansible.builtin.copy:
+        src: "{{ src_dir }}/index.php"
+        dest: "{{ www_dir }}/index.php"
+        mode: 0644
+
+#    - name: Copy env
+#      ansible.builtin.copy:
+#        src: "{{ src_dir }}/.env"
+#        dest: "{{ www_dir }}/.env"
+#        mode: 0644
+
+    - name: Update mysql connection info
+      become: true
+      shell: |
+        sed -i "s/='db_user'/='{{ db_user }}'/g" "{{ www_dir }}"/index.php
+        sed -i "s/='db_pass'/='{{ db_pass }}'/g" "{{ www_dir }}"/index.php
+        sed -i "s/='db_host'/='{{ db_host }}'/g" "{{ www_dir }}"/index.php
+        sed -i "s/='db_name'/='{{ db_name }}'/g" "{{ www_dir }}"/index.php
+
+    - name: Run docker compose
+      community.docker.docker_compose:
+        project_src: "{{ nginx_dir }}"
+        files: 
+          - docker-compose.yml
+      register: output
+
+    - name: Show update results
+      ansible.builtin.debug:
+        var: output
+
+    - name: Verify that the web service is running
+      ansible.builtin.assert:
+        that:
+          - "output.services.web.rwi-ngx-01.state.running"

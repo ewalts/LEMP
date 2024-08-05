@@ -1,0 +1,140 @@
+---
+###  [011-rwitech-lemp_1.2.11] 
+###  Ubuntu 22.04 x 1 +Vol2 /data0
+###  Docker NGINX,BITNAMI/PHP-FPM
+###  MySQL 8.1 Native -REQUIRED.md
+- name: /[011-lemp-rwitech_1.2.1/] Ubuntu MySQL, DockerNginx,PHP-FPM
+  vars_files:
+    - vars/deployment_vars.yml
+    - vars/aws_template_vars.yml
+  hosts: localhost
+  gather_facts: false
+  tasks:
+
+    - name: Require Subnet
+      import_tasks:
+        file: tasks/create_subnet.yml
+
+    - name: Require Security Group
+      import_tasks:
+        file: tasks/aws_security_group.yml
+
+    - name: Require s3 bucket
+      import_tasks:
+        file: tasks/create_s3_bucket.yml
+
+    - name: Create IAM assume Role
+      community.aws.iam_role:
+        name: "{{ iam_role }}"
+        assume_role_policy_document: "{{ lookup('file','../scripts/assume_iam_role.json') }}"
+        description: Role for EC2 Instances
+        state: present
+        tags:
+          rb_type: role
+          product: "{{ product_tag }}"
+          environment: "{{ new_env }}"
+      register: iam_role_info
+    - debug:
+        msg: "{{ iam_role_info }}"
+
+    - name: Shell timestamp for unique profile name
+      shell: |
+        echo $(date '+%Y%m%d-%H%M%s')
+      register: time_stamp
+
+    - name: LEMP Instance Profile - Create
+      ansible.builtin.command: aws iam create-instance-profile
+        --instance-profile-name "{{ nginx_instance_profile }}-{{ time_stamp.stdout }}"
+      ignore_errors: true
+
+    - name: Create Policy
+      amazon.aws.iam_policy:
+        iam_type: role
+        iam_name: "{{ iam_role }}"
+        policy_name: "{{ policy_name }}"
+        policy_json: "{{ lookup('file','../scripts/011-rwi-ngx.json') }}"
+        state: present
+      register: iam_policy_info
+    - debug:
+        msg: "{{ iam_policy_info }}"
+
+    - name: Attach Role to LEMP Instance Profile
+      ansible.builtin.command: aws iam add-role-to-instance-profile
+        --role-name "{{ iam_role }}"
+        --instance-profile-name "{{ nginx_instance_profile }}-{{ time_stamp.stdout }}"
+      ignore_errors: true
+
+    - name: LEMP Instance
+      amazon.aws.ec2_instance:
+        name: "{{ nginx_inst_name }}"
+        key_name: "{{ key_name }}"
+        iam_instance_profile: "{{ nginx_instance_profile }}-{{ time_stamp.stdout }}"
+        vpc_subnet_id: "{{ subnet_info['subnet']['id'] }}"
+        instance_type: "{{ web_ins_type }}"
+        security_groups: 
+          - "{{ sg }}"
+          - "{{ db_sg }}"
+        network:
+          assign_public_ip: true
+        image_id: "{{ ubu_22_10g }}"
+        tags:
+          Name: "{{ web_tags_name }}"
+          environment: "{{ new_env }}"
+          product: "{{ product_tag }}"
+          purpose: "{{ lemp_host_purpose }}"
+        state: running
+        wait: true
+      register: ec2
+    - debug:
+        msg: "{{ ec2 }}"
+
+    - name: Add MySQL Data Disk
+      import_tasks:
+        file: tasks/create_volume.yml
+
+    - name: Register instance in ad-hoc groups
+      add_host: 
+        hostname: "{{ ec2['instances'][0]['network_interfaces'][0]['association']['public_ip'] }}" 
+        groups: 
+          - ec2hosts
+          - nginx
+          - mysql
+
+    - name: Create DNS A record for web
+      amazon.aws.route53:
+        state: present
+        overwrite: true
+        zone: "{{ dns_zone }}"
+        record: "{{ web_host_fqdn }}"
+        type: A
+        ttl: 7200
+        value: "{{ ec2['instances'][0]['network_interfaces'][0]['association']['public_ip'] }}"
+        tags:
+          environment: "{{ new_env }}"
+          rb_type: dns_record
+          product: "{{ product_tag }}"
+      ignore_errors: true
+      register: dns_web
+    - debug:
+        msg: "{{ dns_web }}"
+
+    - name: Update deployment inventory.yml
+      shell: |
+        /usr/bin/php /home/eric/dep-1/lemp/scripts/update_inventory.php "{{ groups }}"
+      ignore_errors: true
+      register: php_output
+    - debug:
+        msg: "{{ php_output }}"
+
+    - name: Deployment Vars Log task
+      import_tasks:
+        file: tasks/record_deployment_vars.yml 
+
+- name: Basic ubuntu server setup
+  ansible.builtin.import_playbook: ubuntu_server_setup.yml
+
+- name: MySQL setup
+  ansible.builtin.import_playbook: install_mysql.yml
+
+- name: WP container setup
+  ansible.builtin.import_playbook: compose.yml

@@ -1,0 +1,11 @@
+###>  Verify if a DNS host A record exists already
+    - name: Check for record
+      amazon.aws.route53_info:
+        type: A
+        query: record_sets
+        hosted_zone_id: "{{ zone_id }}"
+        start_record_name: "{{ web_host_fqdn }}"
+      register: dns
+    - debug:
+        msg: "{{ dns }}"
+

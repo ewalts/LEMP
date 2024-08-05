@@ -1,0 +1,9 @@
+- name: Test run for new key gen
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/deployment_vars.yml
+  tasks:
+    - name: import key rollback task
+      import_tasks:
+        file: rollback/key_pair.yml
